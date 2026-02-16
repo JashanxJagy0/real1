@@ -75,9 +75,13 @@ except ImportError:
 
 # --- Bot Configuration ---
 BOT_TOKEN = "7956452112:AAGSZVLZz34ep8qCsLKnTRZambI67r_T3ro"
+HELPER_BOT_TOKEN = ""  # Add your second bot token here for load balancing PvP games in groups
 BOT_OWNER_ID = 6083286836
 MIN_BALANCE = 0.1
 DEBUG_EMOJI_GAMES = False  # Set to True to enable detailed emoji game logging
+
+# Helper bot animation timing (faster than main bot)
+HELPER_BOT_ANIMATION_DELAY = 0.5  # Seconds to wait after helper bot sends dice
 
 # --- Links Configuration ---
 # Add your community links here
@@ -338,6 +342,16 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(GROUPS_DIR, exist_ok=True) # NEW
 os.makedirs(RECOVERY_DIR, exist_ok=True) # NEW
 os.makedirs(GIFT_CODE_DIR, exist_ok=True) # NEW
+
+# --- Helper Bot Initialization (for PvP Load Balancing) ---
+helper_bot = None
+if HELPER_BOT_TOKEN:
+    try:
+        helper_bot = Bot(token=HELPER_BOT_TOKEN)
+        logging.info("Helper bot initialized successfully for PvP load balancing")
+    except Exception as e:
+        logging.warning(f"Failed to initialize helper bot: {e}")
+        helper_bot = None
 
 # --- In-memory Data ---
 user_wallets = {}
@@ -2718,7 +2732,7 @@ async def deposit_method_callback(update: Update, context: ContextTypes.DEFAULT_
         else:
             error_msg += f"{chain} address could not be generated. Please try again or contact support."
         
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]]
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]]
         await safe_edit_message(
             query,
             error_msg,
@@ -2766,8 +2780,8 @@ async def deposit_method_callback(update: Update, context: ContextTypes.DEFAULT_
     )
     
     keyboard = [
-        [InlineKeyboardButton("🔄 Check Status", callback_data=f"check_deposit_{chain}")],
-        [InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]
+        [InlineKeyboardButton("🔄 Check Status", callback_data=f"check_deposit_{chain}_{user_id}")],
+        [InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]
     ]
     
     await query.message.reply_photo(
@@ -2796,7 +2810,16 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
     # Extract chain from callback data if specific chain check
     chain_to_check = None
     if query.data.startswith("check_deposit_"):
-        chain_to_check = query.data.replace("check_deposit_", "")
+        # Handle both old format (check_deposit_ETH) and new format (check_deposit_ETH_12345)
+        # Old format maintained for backward compatibility with existing messages
+        parts = query.data.replace("check_deposit_", "").split("_")
+        chain_to_check = parts[0]
+        # If user_id is provided, verify it matches
+        if len(parts) > 1:
+            button_user_id = int(parts[1])
+            if button_user_id != user_id:
+                await query.answer("This button is not for you!", show_alert=True)
+                return
     
     db = DepositDatabase()
     
@@ -2838,8 +2861,8 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
             "Send funds to your deposit address and check again.</i>"
         )
         keyboard = [
-            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}" if chain_to_check else "deposit_history")],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]
+            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}_{user_id}" if chain_to_check else "deposit_history")],
+            [InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]
         ]
     else:
         text = "📊 <b>Recent Deposits</b>\n\n"
@@ -2864,8 +2887,8 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         
         keyboard = [
-            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}" if chain_to_check else "deposit_history")],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]
+            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}_{user_id}" if chain_to_check else "deposit_history")],
+            [InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]
         ]
     
     # Use safe_edit_message to handle the transition from Photo -> Text
@@ -2885,6 +2908,16 @@ async def back_to_deposit_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     if not check_menu_ownership(query, context):
         await query.answer("This menu is not for you.", show_alert=True)
         return
+    
+    # Extract user_id from callback_data if provided
+    user_id = query.from_user.id
+    if "_" in query.data:
+        parts = query.data.split("_")
+        if len(parts) > 3 and parts[-1].isdigit():
+            button_user_id = int(parts[-1])
+            if button_user_id != user_id:
+                await query.answer("This button is not for you!", show_alert=True)
+                return
     
     await query.answer()
     
@@ -3232,6 +3265,47 @@ SINGLE_EMOJI_GAMES = {
     }
 }
 
+# --- ROULETTE STICKER ANIMATIONS ---
+# Sticker IDs (0 to 36) - Each index corresponds to the roulette number
+ROULETTE_STICKERS = [
+    "CAACAgQAAyEFAASrImQNAAIBvWiLZDne0b_gDav_cu9Zoz_Wn8QAA9QYAAJJoYBRv9LvNhOfZtw2BA", # 0 
+    "CAACAgQAAyEFAASrImQNAAIBxWiLZNEh0p7950vmRhKNC3S3ZU25AAKoFgAC9OuBUThYKjFsHNUINgQ", # 1 
+    "CAACAgQAAyEFAASrImQNAAIBx2iLZOqAubPVdNGdZzvcnsXjTpqpAALVFgAChvR5UXXNtwbTRSMzNgQ", # 2 
+    "CAACAgQAAyEFAASrImQNAAIBzWiLZQ6zjkGiwJm-7gMR-5pTaDl7AAJJGAACzviBUTIdC1OxHKQaNgQ", # 3 
+    "CAACAgQAAyEFAASrImQNAAIBz2iLZSVhamntTktG1qeRTcyAamngAAJ8GAACDciAUYSN0sp7C2LnNgQ", # 4 
+    "CAACAgQAAyEFAASrImQNAAIB0WiLZT6zKhE_zIZeIN7b3S6tUzh8AALKFgACW3KBUQIpefveRTIKNgQ", # 5 
+    "CAACAgQAAyEFAASrImQNAAIB02iLZVAeRDcVkPbHf67K-6P9hMSkAALLGgACC62BUbKIJ7iU0rb4NgQ", # 6 
+    "CAACAgQAAyEFAASrImQNAAIB1WiLZWLCIx-z_rMuhRNLgPR1qW54AALVGAAClPyBUSUxwoUHdsn8NgQ", # 7 
+    "CAACAgQAAyEFAASrImQNAAIB12iLZXTKXalIWjkrGoCaVd1kdLwWAAKAFAACaVaBUUiaHozlFwAB0jYE", # 8 
+    "CAACAgQAAyEFAASrImQNAAIB2WiLZYebcuzYSQbvfQPnMdLARswWAALgFwAC88p5UUHH5NnJwBYPNgQ", # 9 
+    "CAACAgQAAyEFAASrImQNAAIB22iLZZmLTjEPN3kacYZtInsUCKZtAALyGAACucCAUZ6fXOAfAAEs9zYE", # 10 
+    "CAACAgQAAyEFAASrImQNAAIB3WiLZb-01H91oXUKEFcGpCv8nAupAALZEwACbN2BURqjRgAB0jLjWDYE", # 11 
+    "CAACAgQAAyEFAASrImQNAAIB4WiLZdWV8Mm3ERAAAUtDcsbOQB8F4gACVRgAAovngVFUjR-qYgq8LDYE", # 12 
+    "CAACAgQAAyEFAASrImQNAAIB8miLZi2XoFr2zDBIJmb7FqK_NWeNAAJNHQACZzSAUdecnnT052I6NgQ", # 13 
+    "CAACAgQAAyEFAASrImQNAAIB9GiLZkNMlJ-I8vVZ0hrPyeKG1IdTAAJDGQACpcN5URDm4Ifd0r06NgQ", # 14 
+    "CAACAgQAAyEFAASrImQNAAIB92iLZlqc-BO3IIxiXkyXlKi0iZfBAAKtFgACUFaBUf0GoZ1742K-NgQ", # 15 
+    "CAACAgQAAyEFAASrImQNAAIB-2iLZmnlAfTNlsfSaexM1GASzMAbAAKvGwACRx95Ub2KbQXS25k_NgQ", # 16 
+    "CAACAgQAAyEFAASrImQNAAICAWiLZoVPqOAoPNEu8ciguHbhPth-AAIuGAACK5eBUdo-jXChdkRhNgQ", # 17 
+    "CAACAgQAAyEFAASrImQNAAICBGiLZpjAERL_jSk0_Knhenev_rEkAAJjGQACfHt4Uaxk_YBdcErDNgQ", # 18 
+    "CAACAgQAAyEFAASrImQNAAICBmiLZqsspVHNaTc4ENzdfqcJEPqmAAIpGQACsPCAUfSIqog8-IdgNgQ", # 19 
+    "CAACAgQAAyEFAASrImQNAAICDGiLZsPmYc3VwL5hWWfQr62cb10_AAJzGgACvs54UZK5KgfIrF_lNgQ", # 20 
+    "CAACAgQAAyEFAASrImQNAAICDmiLZtWGzKI2zY3wzLprkoAqc-KVAALGFwAC_V2AUXeSG0ZgWd5jNgQ", # 21 
+    "CAACAgQAAyEFAASrImQNAAICEGiLZuNlaO9D0c85DyutySD1u_qMAAMZAAITwoBRIlMrM9BBD0g2BA", # 22 
+    "CAACAgQAAyEFAASrImQNAAICEmiLZvojsOnJx8YE-yfuFiZmpe6cAAJMGAAC6d2BUXq6dfIzfhljNgQ", # 23 
+    "CAACAgQAAyEFAASrImQNAAICFGiLZwjZ2PZBmj4YgAKLvUrmAkbNAALhGgACeS-AUdEviXb3bvCcNgQ", # 24 
+    "CAACAgQAAyEFAASrImQNAAICFmiLZxey5PH6Qm_FuX_ar_n1Qr8DAALmFwACI96AUWwyQ3Omp9HTNgQ", # 25 
+    "CAACAgQAAyEFAASrImQNAAICGWiLZygMUnBPnLmep_qtebbW-ucoAALNIAACfXmBUb6hDihoktivNgQ", # 26 
+    "CAACAgQAAyEFAASrImQNAAICHGiLZziBU-1FLh5G2ZwRDFoJXShpAAKgFwACMrSBUWqhExYnRXYCNgQ", # 27 
+    "CAACAgQAAyEFAASrImQNAAICHmiLZ0a5rK8mKDySuCZ5xWhG6R3XAALzFQACNO2BUVsOM4juGOTINgQ", # 28 
+    "CAACAgQAAyEFAASrImQNAAICIGiLZ1pVZYUGwoBvfOBIUySGC1_3AAJ6FwACAvZ4UXK88kRPGqWWNgQ", # 29 
+    "CAACAgQAAyEFAASrImQNAAICImiLZ2zFmnOl2hUGfKqGwmrWVFPAAAKsFQACoyyBUSIq6OlCBV8kNgQ", # 30 
+    "CAACAgQAAyEFAASrImQNAAICJGiLZ352bXF_C2aVFEgnO-dlGOJtAAIOGwACtbqAUQ1y_oj3ur3ENgQ", # 31 
+    "CAACAgQAAyEFAASrImQNAAICJmiLZ4u_-YlnmI26z9JRKtnREL1cAAJbFwACyad5UYWo5iH3DzX9NgQ", # 32 
+    "CAACAgQAAyEFAASHyrY2AAIIZGiLRIkLwf5ktSB3VkFL8pReOa9BAAKMGQACjcl4URhc62AjMUuNNgQ", # 33 
+    "CAACAgQAAyEFAASrImQNAAICKmiLZ-hPWbW7WDMTkhBmtZYy66oNAAJYFgAC-feBUSUjonJS-hFjNgQ", # 34 
+    "CAACAgQAAyEFAASrImQNAAICLGiLZ_PGUGYeKbdSWBr0uvv5TAirAAKSFgACwpOAUcdyb2uPc8PINgQ", # 35 
+    "CAACAgQAAyEFAASrImQNAAICLmiLaAABmtHjXzRZDz5Zy3dT5v8v0wACrBcAAtbQgVFt8Uw1gyn4MDYE", # 36 
+]
 
 # --- Provably Fair System & Game ID Generation ---
 def generate_server_seed():
@@ -3343,6 +3417,33 @@ async def smart_rate_limit(chat_id, chat_type="private"):
     emoji_send_timestamps[chat_id] = asyncio.get_event_loop().time()
     
     return animation_wait  # Return how long to wait for animation
+
+async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: str):
+    """
+    Attempts to roll dice using the Helper Bot in groups.
+    Falls back to Main Bot if Helper fails or if in Private Chat.
+    Returns the Message object containing the dice value.
+    
+    Returns tuple: (message, used_helper_bot: bool)
+    """
+    # 1. Determine Chat Type
+    # In Telegram API, group/supergroup chats have negative IDs, while private chats have positive IDs
+    is_group = chat_id < 0
+    
+    # 2. Try Helper Bot ONLY if it's a group and helper is active
+    if is_group and helper_bot:
+        try:
+            # Attempt roll with Helper Bot
+            msg = await helper_bot.send_dice(chat_id=chat_id, emoji=emoji)
+            return (msg, True)  # Successfully used helper bot
+        except Exception as e:
+            # Log failure (Rate Limit or Permission error) but DO NOT CRASH
+            logging.warning(f"⚠️ Helper Bot failed (Failover active): {e}")
+            # PROCEED TO FALLBACK BELOW...
+            
+    # 3. Fallback: Main Bot (Always works for DMs or if Helper failed)
+    msg = await context.bot.send_dice(chat_id=chat_id, emoji=emoji)
+    return (msg, False)  # Used main bot
 
 def store_provably_fair_record(game_id, game_type, server_seed, client_seed, nonce, result_data=None):
     """Store provably fair verification data for a completed game"""
@@ -6543,6 +6644,14 @@ async def roulette_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], current_nonce, 37)
     game_id = generate_unique_id("RL")
 
+    # Send roulette sticker animation for the winning number
+    try:
+        sticker_id = ROULETTE_STICKERS[winning_number]
+        await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=sticker_id)
+        await asyncio.sleep(2.5)  # Let animation play before showing result
+    except Exception as e:
+        logging.warning(f"Failed to send roulette sticker: {e}")
+
     win = False
     multiplier = 0
     if choice_type == "number":
@@ -6660,6 +6769,14 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         increment_user_nonce(user.id)
         winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], current_nonce, 37)
         game_id = generate_unique_id("RL")
+        
+        # Send roulette sticker animation for the winning number
+        try:
+            sticker_id = ROULETTE_STICKERS[winning_number]
+            await context.bot.send_sticker(chat_id=query.message.chat_id, sticker=sticker_id)
+            await asyncio.sleep(2.5)  # Let animation play before showing result
+        except Exception as e:
+            logging.warning(f"Failed to send roulette sticker in rebet: {e}")
         
         # Determine win/loss
         win = False
@@ -6915,6 +7032,15 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], current_nonce, 37)
     game_id = generate_unique_id("RL")
     
+    # Send roulette sticker animation for the winning number
+    try:
+        sticker_id = ROULETTE_STICKERS[winning_number]
+        # Send as reply to the callback message to help user find it
+        await query.message.reply_sticker(sticker=sticker_id)
+        await asyncio.sleep(2.5)  # Let animation play before showing result
+    except Exception as e:
+        logging.warning(f"Failed to send roulette sticker in start action: {e}")
+    
     # Ensure choice_numbers is defined (will be None for non-number bets)
     try:
         _ = choice_numbers
@@ -7098,9 +7224,115 @@ async def dice_roll_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # 5. TOWER GAME
-@check_banned
-@check_maintenance
 ## NEW TOWER GAME - Complete Rebuild ##
+
+# Tower Game Visuals
+ZWNBSP = "\u2060"  # Zero-width space to make empty buttons work
+TILE = {
+    "blank": ZWNBSP,
+    "play": "🟩",      # Clickable tile for the current level
+    "safe": "🌴",      # Successfully stepped tile
+    "snake": "🐍",     # Game Over snake
+    "lock": "☁️",      # Unreached levels
+}
+
+
+def build_tower_keyboard(game_state):
+    """
+    Build the Tower game keyboard with inline buttons showing the grid.
+    Returns an InlineKeyboardMarkup.
+    
+    Note: Non-interactive tiles use callback_data='tower_noop' which is silently ignored.
+    These tiles don't need handling as they represent locked, completed, or revealed positions.
+    """
+    current_floor = game_state.get('current_floor', 0)
+    tiles_per_floor = game_state.get('tiles_per_floor', 3)
+    selected_tiles = game_state.get('selected_tiles', [])
+    tower_config = game_state.get('tower_config', [])
+    status = game_state.get('status', 'active')
+    game_id = game_state.get('id')
+    difficulty = game_state.get('difficulty', 'medium')
+    bet_amount = game_state.get('bet_amount', 0)
+    
+    keyboard = []
+    
+    # Iterate floors from top (8) down to 0
+    for floor in range(8, -1, -1):
+        row = []
+        
+        if floor > current_floor and status == 'active':
+            # Unreached floors during active game - show as locked/blank
+            for col in range(tiles_per_floor):
+                btn_dict = apply_button_style(
+                    InlineKeyboardButton(TILE["lock"], callback_data=f"tower_noop"),
+                    'primary'  # Blue background for unreached
+                )
+                row.append(btn_dict)
+        
+        elif floor == current_floor and status == 'active':
+            # Active floor - show playable tiles
+            for col in range(tiles_per_floor):
+                btn_dict = apply_button_style(
+                    InlineKeyboardButton(TILE["play"], callback_data=f"tower_pick_{game_id}_{col}"),
+                    'primary'  # Blue background for playable tiles
+                )
+                row.append(btn_dict)
+        
+        else:
+            # All other cases: completed floors, current floor when game ended, unreached floors when game ended
+            # This reveals snakes on all floors when status != 'active'
+            snake_pos = tower_config[floor] if floor < len(tower_config) else None
+            safe_pos = selected_tiles[floor] if floor < len(selected_tiles) else None
+            
+            for col in range(tiles_per_floor):
+                if col == safe_pos:
+                    # User's safe pick - show as green tree
+                    btn_dict = apply_button_style(
+                        InlineKeyboardButton(TILE["safe"], callback_data=f"tower_noop"),
+                        'success'  # Green background
+                    )
+                elif col == snake_pos and status != 'active':
+                    # Reveal snake after game ends (on all floors including unreached)
+                    btn_dict = apply_button_style(
+                        InlineKeyboardButton(TILE["snake"], callback_data=f"tower_noop"),
+                        'danger'  # Red background
+                    )
+                else:
+                    # Other tiles
+                    btn_dict = apply_button_style(
+                        InlineKeyboardButton(TILE["blank"], callback_data=f"tower_noop"),
+                        'primary'  # Blue background
+                    )
+                row.append(btn_dict)
+        
+        keyboard.append(row)
+    
+    # Add action buttons at the bottom
+    if status == 'active' and current_floor >= 0:
+        # Calculate current multiplier and potential winnings
+        multiplier = TOWER_MULTIPLIERS[difficulty][current_floor]
+        potential_winnings = bet_amount * multiplier
+        
+        action_row = []
+        
+        # Random selection button (like Mines)
+        random_btn_dict = apply_button_style(
+            InlineKeyboardButton("🎲 Random", callback_data=f"tower_random_{game_id}"),
+            'primary'  # Blue background
+        )
+        action_row.append(random_btn_dict)
+        
+        # Cashout button
+        cashout_btn_dict = apply_button_style(
+            InlineKeyboardButton(f"💰 Cash Out (${potential_winnings:.2f})", callback_data=f"tower_cashout_{game_id}"),
+            'success'  # Green background
+        )
+        action_row.append(cashout_btn_dict)
+        
+        keyboard.append(action_row)
+    
+    return InlineKeyboardMarkup(keyboard)
+
 
 @check_banned
 @check_maintenance
@@ -7372,6 +7604,13 @@ async def tower_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_tower_cashout(update, context, game_id, game)
         return
     
+    if action == "random":
+        # Random tile selection
+        tiles_per_floor = game.get('tiles_per_floor', 3)
+        random_position = random.randint(0, tiles_per_floor - 1)
+        await handle_tower_pick(update, context, game_id, game, random_position)
+        return
+    
     if action == "pick":
         position = int(parts[3]) if len(parts) > 3 else 0
         await handle_tower_pick(update, context, game_id, game, position)
@@ -7430,24 +7669,19 @@ async def start_tower_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('tower_bet_amount', None)
     context.user_data.pop('tower_difficulty', None)
     
-    # Create keyboard for floor 0
-    keyboard = create_tower_floor_keyboard(game_id, 0, tiles_per_floor, None)
-    keyboard.append([InlineKeyboardButton(f"💸 Cash Out (${bet_amount * 0.90:.2f})", callback_data=f"tower_cashout_{game_id}")])
-    
-    # Create visual representation
-    visual = create_tower_game_visual(game_sessions[game_id])
+    # Build the tower keyboard (replaces text visual + old keyboard)
+    keyboard = build_tower_keyboard(game_sessions[game_id])
     
     await query.edit_message_text(
-        f"🏗️ <b>Tower Climb Started!</b>\n"
+        f"🏗️ <b>Tower Climb</b>\n"
         f"ID: <code>{game_id}</code>\n\n"
-        f"{visual}\n"
         f"💰 Bet: ${bet_amount:.2f}\n"
         f"🎯 Difficulty: {TOWER_DIFFICULTY_CONFIG[difficulty]['name']}\n"
-        f"📊 Floor: 0/9 (Starting position)\n"
-        f"💎 Current Multiplier: 0.90x\n\n"
+        f"📊 Floor: 0/9\n"
+        f"💎 Multiplier: 0.90x\n\n"
         f"Select a tile to start climbing!",
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=keyboard
     )
 
 
@@ -7523,16 +7757,18 @@ async def handle_tower_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         store_provably_fair_record(game_id, "tower", game["server_seed"], game["client_seed"], game["nonce"], 
                                    result_data=f"Hit snake on floor {current_floor + 1}, Config: {game['tower_config']}")
         
-        # Show all tiles on current floor
-        visual = create_tower_game_visual(game)
-        keyboard = create_revealed_floor_keyboard(game_id, current_floor, tiles_per_floor, snake_position, position)
+        # Answer the callback query first
+        await query.answer("💔 You hit the snake!")
+        
+        # Build keyboard showing revealed board with all snakes
+        keyboard_markup = build_tower_keyboard(game)
         # Add provably fair button
+        keyboard = keyboard_markup.inline_keyboard
         keyboard.append([await create_provably_fair_button(game_id, context)])
         
         await query.edit_message_text(
             f"🐍 <b>Tower Collapsed!</b>\n"
             f"ID: <code>{game_id}</code>\n\n"
-            f"{visual}\n"
             f"💔 You hit the snake on Floor {current_floor + 1}!\n"
             f"💸 Lost: ${game['bet_amount']:.2f}\n"
             f"🏗️ Floors climbed: {current_floor}/9",
@@ -7563,15 +7799,18 @@ async def handle_tower_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         store_provably_fair_record(game_id, "tower", game["server_seed"], game["client_seed"], game["nonce"], 
                                    result_data=f"Conquered all floors, Multiplier: {multiplier}x, Config: {game['tower_config']}")
         
-        visual = create_tower_game_visual(game)
+        # Answer the callback query first
+        await query.answer("🏆 Tower conquered!")
         
+        # Build keyboard showing revealed board
+        keyboard_markup = build_tower_keyboard(game)
         # Add provably fair button
-        keyboard = [[await create_provably_fair_button(game_id, context)]]
+        keyboard = keyboard_markup.inline_keyboard
+        keyboard.append([await create_provably_fair_button(game_id, context)])
         
         await query.edit_message_text(
             f"🏆 <b>Tower Conquered!</b>\n"
             f"ID: <code>{game_id}</code>\n\n"
-            f"{visual}\n"
             f"🎉 YOU REACHED THE TOP!\n"
             f"💰 Winnings: <b>${winnings:.2f}</b>\n"
             f"📈 Final Multiplier: {multiplier}x\n"
@@ -7585,21 +7824,21 @@ async def handle_tower_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     multiplier = TOWER_MULTIPLIERS[difficulty][new_floor]
     potential_winnings = game["bet_amount"] * multiplier
     
-    keyboard = create_tower_floor_keyboard(game_id, new_floor, tiles_per_floor, None)
-    keyboard.append([InlineKeyboardButton(f"💸 Cash Out (${potential_winnings:.2f})", callback_data=f"tower_cashout_{game_id}")])
+    # Answer the callback query
+    await query.answer("✅ Safe tile!")
     
-    visual = create_tower_game_visual(game)
+    # Build keyboard for next floor
+    keyboard = build_tower_keyboard(game)
     
     await query.edit_message_text(
         f"✅ <b>Safe! Climbing up...</b>\n"
         f"ID: <code>{game_id}</code>\n\n"
-        f"{visual}\n"
         f"📊 Floor: {new_floor}/9\n"
         f"💰 Current Value: <b>${potential_winnings:.2f}</b>\n"
         f"📈 Multiplier: {multiplier}x\n\n"
         f"Choose your next tile or cash out!",
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=keyboard
     )
 
 
@@ -7626,15 +7865,18 @@ async def handle_tower_cashout(update: Update, context: ContextTypes.DEFAULT_TYP
     store_provably_fair_record(game_id, "tower", game["server_seed"], game["client_seed"], game["nonce"], 
                                result_data=f"Cashed out at floor {current_floor}, Multiplier: {multiplier}x, Config: {game['tower_config']}")
     
-    visual = create_tower_game_visual(game)
+    # Answer the callback query first
+    await query.answer(f"💰 Cashed out ${winnings:.2f}!")
     
+    # Build keyboard showing revealed board
+    keyboard_markup = build_tower_keyboard(game)
     # Add provably fair button
-    keyboard = [[await create_provably_fair_button(game_id, context)]]
+    keyboard = keyboard_markup.inline_keyboard
+    keyboard.append([await create_provably_fair_button(game_id, context)])
     
     await query.edit_message_text(
         f"💸 <b>Cashed Out!</b>\n"
         f"ID: <code>{game_id}</code>\n\n"
-        f"{visual}\n"
         f"🎉 Winnings: <b>${winnings:.2f}</b>\n"
         f"📈 Multiplier: {multiplier}x\n"
         f"🏗️ Floors climbed: {current_floor}/9",
@@ -8260,9 +8502,13 @@ async def xdxw_bot_first_callback(update: Update, context: ContextTypes.DEFAULT_
     for i in range(game_rolls):
         animation_wait = await smart_rate_limit(chat_id, chat_type)
         try:
-            bot_dice_msg = await context.bot.send_dice(chat_id=chat_id, emoji=emoji)
+            bot_dice_msg, used_helper = await smart_roll(context, chat_id, emoji)
             bot_rolls.append(bot_dice_msg.dice.value)
-            await asyncio.sleep(animation_wait)
+            # Reduce delay if helper bot was used (faster in groups)
+            if used_helper:
+                await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)  # Faster animation wait for helper bot
+            else:
+                await asyncio.sleep(animation_wait)
         except Exception as e:
             logging.error(f"Error sending dice in PvB game: {e}")
             await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred. Game terminated.")
@@ -8281,10 +8527,14 @@ async def xdxw_bot_first_callback(update: Update, context: ContextTypes.DEFAULT_
     bot_total = sum(bot_rolls)
     bot_rolls_text = " + ".join(str(r) for r in bot_rolls)
     
+    # Get user for mention
+    user_id = match.get("host_id")
+    user_mention = f'<a href="tg://user?id={user_id}">Player</a>' if user_id else "Player"
+    
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"🤖 Bot rolled: {bot_rolls_text} = <b>{bot_total}</b>\n\n"
-             f"<b>Your turn!</b> Send {game_rolls} {emoji} to respond.",
+             f"{user_mention}, <b>Your turn!</b> Send {game_rolls} {emoji} to respond.",
         parse_mode=ParseMode.HTML
     )
 
@@ -8725,18 +8975,22 @@ async def group_challenge_botfirst_callback(update: Update, context: ContextType
     roll_values = []
     
     for _ in range(rolls):
-        emoji_msg = await context.bot.send_dice(chat_id=query.message.chat_id, emoji=emoji)
+        emoji_msg, used_helper = await smart_roll(context, query.message.chat_id, emoji)
         value = emoji_msg.dice.value
         roll_values.append(value)
         total_value += value
-        await asyncio.sleep(3.5)  # Wait for animation
+        # Faster animation if helper bot was used
+        if used_helper:
+            await asyncio.sleep(2.0)
+        else:
+            await asyncio.sleep(3.5)  # Wait for animation
     
     match["player_rolls"][0] = roll_values  # 0 = Bot
     
     await query.edit_message_text(
         f"🤖 <b>BOT ROLLED FIRST!</b>\n\n"
         f"Bot rolled: {roll_values} = <b>{total_value}</b>\n\n"
-        f"<b>Your turn!</b> Send {rolls} {emoji} to respond.",
+        f"{user.mention_html()}, <b>Your turn!</b> Send {rolls} {emoji} to respond.",
         parse_mode=ParseMode.HTML
     )
 
@@ -8854,9 +9108,13 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
         for i in range(game_rolls):
             animation_wait = await smart_rate_limit(chat_id, chat_type)
             try:
-                bot_dice_msg = await context.bot.send_dice(chat_id=chat_id, emoji=telegram_emoji)
+                bot_dice_msg, used_helper = await smart_roll(context, chat_id, telegram_emoji)
                 bot_rolls.append(bot_dice_msg.dice.value)
-                await asyncio.sleep(animation_wait)
+                # Faster animation if helper bot was used
+                if used_helper:
+                    await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
+                else:
+                    await asyncio.sleep(animation_wait)
             except Exception as e:
                 logging.error(f"Error sending dice in PvB game: {e}")
                 await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -8877,7 +9135,7 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
         
         await update.message.reply_text(
             f"🤖 Bot rolled: {bot_rolls_text} = <b>{bot_total}</b>\n\n"
-            f"<b>Your turn!</b> Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to respond.",
+            f"{user.mention_html()}, <b>Your turn!</b> Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to respond.",
             parse_mode=ParseMode.HTML
         )
     else:
@@ -8887,7 +9145,7 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
             f"<b>Mode:</b> {game_mode.capitalize()} ({mode_text})\n"
             f"<b>Rolls per round:</b> {game_rolls}\n"
             f"<b>Target:</b> First to {target_score} points wins ${bet_amount*2:.2f}.\n\n"
-            f"<b>Your turn first! Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to start.</b>",
+            f"{user.mention_html()}, <b>Your turn first! Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to start.</b>",
             parse_mode=ParseMode.HTML
         )
     
@@ -11305,8 +11563,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Check if user has completed all rolls
             if len(game['user_rolls']) < game_rolls:
-                remaining = game_rolls - len(game['user_rolls'])
-                await update.message.reply_text(f"Roll {len(game['user_rolls'])}/{game_rolls} complete. Send {remaining} more {expected_emoji}!")
+                # Don't send spam messages - user knows to send more rolls
                 return
             
             # User finished rolling
@@ -11339,9 +11596,13 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for i in range(game_rolls):
                     animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                     try:
-                        bot_dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji=expected_emoji)
+                        bot_dice_msg, used_helper = await smart_roll(context, update.effective_chat.id, expected_emoji)
                         bot_rolls.append(bot_dice_msg.dice.value)
-                        await asyncio.sleep(animation_wait)  # Smart wait based on chat type
+                        # Faster animation if helper bot was used
+                        if used_helper:
+                            await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
+                        else:
+                            await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                     except Exception as e:
                         logging.error(f"Error sending dice in PvB game: {e}")
                         await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -11410,7 +11671,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 game['win'] = True
                 update_stats_on_bet(user.id, game['id'], game['bet_amount'], True, context=context)
                 await asyncio.sleep(0.5)  # Rate limit protection
-                await update.message.reply_text(f"🏆 Congratulations! You beat the bot ({game['user_score']}-{game['bot_score']}) and win ${winnings:.2f}!")
+                await update.message.reply_text(f"🏆 {user.mention_html()}, Congratulations! You beat the bot ({game['user_score']}-{game['bot_score']}) and win ${winnings:.2f}!", parse_mode=ParseMode.HTML)
                 del context.chat_data[f"active_pvb_game_{user.id}"]
                 if user.id in active_pvb_games:
                     del active_pvb_games[user.id]
@@ -11419,7 +11680,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 game['win'] = False
                 update_stats_on_bet(user.id, game['id'], game['bet_amount'], False, context=context)
                 await asyncio.sleep(0.5)  # Rate limit protection
-                await update.message.reply_text(f"😔 Bot wins the match ({game['bot_score']}-{game['user_score']}). You lost ${game['bet_amount']:.2f}.")
+                await update.message.reply_text(f"😔 {user.mention_html()}, Bot wins the match ({game['bot_score']}-{game['user_score']}). You lost ${game['bet_amount']:.2f}.", parse_mode=ParseMode.HTML)
                 del context.chat_data[f"active_pvb_game_{user.id}"]
                 if user.id in active_pvb_games:
                     del active_pvb_games[user.id]
@@ -11440,9 +11701,13 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for i in range(game_rolls):
                         animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                         try:
-                            bot_dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji=expected_emoji)
+                            bot_dice_msg, used_helper = await smart_roll(context, update.effective_chat.id, expected_emoji)
                             bot_rolls.append(bot_dice_msg.dice.value)
-                            await asyncio.sleep(animation_wait)
+                            # Faster animation if helper bot was used
+                            if used_helper:
+                                await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
+                            else:
+                                await asyncio.sleep(animation_wait)
                         except Exception as e:
                             logging.error(f"Error sending dice in PvB game: {e}")
                             await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -11468,7 +11733,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # User rolls first for next round
                     await update.message.reply_text(
                         f"Score: You {game['user_score']} - {game['bot_score']} Bot. (First to {game['target_score']})\n\n"
-                        f"<b>Your turn! Send {game_rolls} {expected_emoji}!</b>",
+                        f"{user.mention_html()}, <b>Your turn! Send {game_rolls} {expected_emoji}!</b>",
                         parse_mode=ParseMode.HTML
                     )
             update_pnl(user.id)
@@ -11543,9 +11808,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Check if player has completed their rolls
                     current_player_rolls = len(match_data["player_rolls"][user.id])
                     if current_player_rolls < game_rolls:
-                        remaining = game_rolls - current_player_rolls
-                        await asyncio.sleep(1)
-                        await update.message.reply_text(f"Roll {current_player_rolls}/{game_rolls} complete! Send {remaining} more {emoji}!")
+                        # Don't send spam messages - user knows to send more rolls
                         return
 
                     # Check if both players have completed their rolls
@@ -11565,8 +11828,12 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_type = update.effective_chat.type
                         for i in range(game_rolls):
                             animation_wait = await smart_rate_limit(chat_id, chat_type)
-                            bot_dice = await context.bot.send_dice(chat_id, emoji=dice_obj.emoji)
-                            await asyncio.sleep(animation_wait)  # Smart wait based on chat type
+                            bot_dice, used_helper = await smart_roll(context, chat_id, dice_obj.emoji)
+                            # Faster animation if helper bot was used
+                            if used_helper:
+                                await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
+                            else:
+                                await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                             bot_rolls.append(bot_dice.dice.value)
                         
                         match_data["player_rolls"][p2] = bot_rolls
@@ -11673,7 +11940,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             match_data["player_rolls"] = {p1: [], p2: []}  # Reset rolls for next round
                             text += f"\n\n<b>Next round:</b> {match_data['usernames'][p1]} rolls first! ({allowed_emojis[gtype]} emoji)"
 
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
                     else:
                         other_id = [pid for pid in players if pid != user.id][0]
@@ -15394,7 +15661,7 @@ def main():
     app.add_handler(CommandHandler("deposit", deposit_command))
     app.add_handler(CallbackQueryHandler(deposit_method_callback, pattern=r"^deposit_(ETH|BNB|BASE|TRON|SOLANA|TON)$"))
     app.add_handler(CallbackQueryHandler(check_deposit_status, pattern=r"^(deposit_history|check_deposit_)"))
-    app.add_handler(CallbackQueryHandler(back_to_deposit_menu, pattern=r"^back_to_deposit_menu$"))
+    app.add_handler(CallbackQueryHandler(back_to_deposit_menu, pattern=r"^back_to_deposit_menu"))
     
     # REMOVED bonus_callback_handler as it's no longer in the main menu
     app.add_handler(admin_handler)
@@ -15899,9 +16166,13 @@ async def play_vs_bot_game_from_callback(query, context: ContextTypes.DEFAULT_TY
         for i in range(game_rolls):
             animation_wait = await smart_rate_limit(chat_id, chat_type)
             try:
-                bot_dice_msg = await context.bot.send_dice(chat_id=chat_id, emoji=telegram_emoji)
+                bot_dice_msg, used_helper = await smart_roll(context, chat_id, telegram_emoji)
                 bot_rolls.append(bot_dice_msg.dice.value)
-                await asyncio.sleep(animation_wait)
+                # Faster animation if helper bot was used
+                if used_helper:
+                    await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
+                else:
+                    await asyncio.sleep(animation_wait)
             except Exception as e:
                 logging.error(f"Error sending dice in PvB game: {e}")
                 await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred. Game terminated.")
