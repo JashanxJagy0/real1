@@ -3419,6 +3419,8 @@ async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: st
     Attempts to roll dice using the Helper Bot in groups.
     Falls back to Main Bot if Helper fails or if in Private Chat.
     Returns the Message object containing the dice value.
+    
+    Returns tuple: (message, used_helper_bot: bool)
     """
     # 1. Determine Chat Type
     # In Telegram API, group/supergroup chats have negative IDs, while private chats have positive IDs
@@ -3429,7 +3431,7 @@ async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: st
         try:
             # Attempt roll with Helper Bot
             msg = await helper_bot.send_dice(chat_id=chat_id, emoji=emoji)
-            return msg
+            return (msg, True)  # Successfully used helper bot
         except Exception as e:
             # Log failure (Rate Limit or Permission error) but DO NOT CRASH
             logging.warning(f"⚠️ Helper Bot failed (Failover active): {e}")
@@ -3437,7 +3439,7 @@ async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: st
             
     # 3. Fallback: Main Bot (Always works for DMs or if Helper failed)
     msg = await context.bot.send_dice(chat_id=chat_id, emoji=emoji)
-    return msg
+    return (msg, False)  # Used main bot
 
 def store_provably_fair_record(game_id, game_type, server_seed, client_seed, nonce, result_data=None):
     """Store provably fair verification data for a completed game"""
@@ -8480,9 +8482,13 @@ async def xdxw_bot_first_callback(update: Update, context: ContextTypes.DEFAULT_
     for i in range(game_rolls):
         animation_wait = await smart_rate_limit(chat_id, chat_type)
         try:
-            bot_dice_msg = await smart_roll(context, chat_id, emoji)
+            bot_dice_msg, used_helper = await smart_roll(context, chat_id, emoji)
             bot_rolls.append(bot_dice_msg.dice.value)
-            await asyncio.sleep(animation_wait)
+            # Reduce delay if helper bot was used (faster in groups)
+            if used_helper:
+                await asyncio.sleep(1.5)  # Faster animation wait for helper bot
+            else:
+                await asyncio.sleep(animation_wait)
         except Exception as e:
             logging.error(f"Error sending dice in PvB game: {e}")
             await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred. Game terminated.")
@@ -8949,11 +8955,15 @@ async def group_challenge_botfirst_callback(update: Update, context: ContextType
     roll_values = []
     
     for _ in range(rolls):
-        emoji_msg = await smart_roll(context, query.message.chat_id, emoji)
+        emoji_msg, used_helper = await smart_roll(context, query.message.chat_id, emoji)
         value = emoji_msg.dice.value
         roll_values.append(value)
         total_value += value
-        await asyncio.sleep(3.5)  # Wait for animation
+        # Faster animation if helper bot was used
+        if used_helper:
+            await asyncio.sleep(2.0)
+        else:
+            await asyncio.sleep(3.5)  # Wait for animation
     
     match["player_rolls"][0] = roll_values  # 0 = Bot
     
@@ -9078,9 +9088,13 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
         for i in range(game_rolls):
             animation_wait = await smart_rate_limit(chat_id, chat_type)
             try:
-                bot_dice_msg = await smart_roll(context, chat_id, telegram_emoji)
+                bot_dice_msg, used_helper = await smart_roll(context, chat_id, telegram_emoji)
                 bot_rolls.append(bot_dice_msg.dice.value)
-                await asyncio.sleep(animation_wait)
+                # Faster animation if helper bot was used
+                if used_helper:
+                    await asyncio.sleep(1.5)
+                else:
+                    await asyncio.sleep(animation_wait)
             except Exception as e:
                 logging.error(f"Error sending dice in PvB game: {e}")
                 await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -11562,9 +11576,13 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for i in range(game_rolls):
                     animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                     try:
-                        bot_dice_msg = await smart_roll(context, update.effective_chat.id, expected_emoji)
+                        bot_dice_msg, used_helper = await smart_roll(context, update.effective_chat.id, expected_emoji)
                         bot_rolls.append(bot_dice_msg.dice.value)
-                        await asyncio.sleep(animation_wait)  # Smart wait based on chat type
+                        # Faster animation if helper bot was used
+                        if used_helper:
+                            await asyncio.sleep(1.5)
+                        else:
+                            await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                     except Exception as e:
                         logging.error(f"Error sending dice in PvB game: {e}")
                         await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -11663,9 +11681,13 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for i in range(game_rolls):
                         animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                         try:
-                            bot_dice_msg = await smart_roll(context, update.effective_chat.id, expected_emoji)
+                            bot_dice_msg, used_helper = await smart_roll(context, update.effective_chat.id, expected_emoji)
                             bot_rolls.append(bot_dice_msg.dice.value)
-                            await asyncio.sleep(animation_wait)
+                            # Faster animation if helper bot was used
+                            if used_helper:
+                                await asyncio.sleep(1.5)
+                            else:
+                                await asyncio.sleep(animation_wait)
                         except Exception as e:
                             logging.error(f"Error sending dice in PvB game: {e}")
                             await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -11786,8 +11808,12 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_type = update.effective_chat.type
                         for i in range(game_rolls):
                             animation_wait = await smart_rate_limit(chat_id, chat_type)
-                            bot_dice = await smart_roll(context, chat_id, dice_obj.emoji)
-                            await asyncio.sleep(animation_wait)  # Smart wait based on chat type
+                            bot_dice, used_helper = await smart_roll(context, chat_id, dice_obj.emoji)
+                            # Faster animation if helper bot was used
+                            if used_helper:
+                                await asyncio.sleep(1.5)
+                            else:
+                                await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                             bot_rolls.append(bot_dice.dice.value)
                         
                         match_data["player_rolls"][p2] = bot_rolls
@@ -16120,9 +16146,13 @@ async def play_vs_bot_game_from_callback(query, context: ContextTypes.DEFAULT_TY
         for i in range(game_rolls):
             animation_wait = await smart_rate_limit(chat_id, chat_type)
             try:
-                bot_dice_msg = await smart_roll(context, chat_id, telegram_emoji)
+                bot_dice_msg, used_helper = await smart_roll(context, chat_id, telegram_emoji)
                 bot_rolls.append(bot_dice_msg.dice.value)
-                await asyncio.sleep(animation_wait)
+                # Faster animation if helper bot was used
+                if used_helper:
+                    await asyncio.sleep(1.5)
+                else:
+                    await asyncio.sleep(animation_wait)
             except Exception as e:
                 logging.error(f"Error sending dice in PvB game: {e}")
                 await context.bot.send_message(chat_id=chat_id, text="❌ An error occurred. Game terminated.")
