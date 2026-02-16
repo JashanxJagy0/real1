@@ -80,6 +80,9 @@ BOT_OWNER_ID = 6083286836
 MIN_BALANCE = 0.1
 DEBUG_EMOJI_GAMES = False  # Set to True to enable detailed emoji game logging
 
+# Helper bot animation timing (faster than main bot)
+HELPER_BOT_ANIMATION_DELAY = 1.5  # Seconds to wait after helper bot sends dice
+
 # --- Links Configuration ---
 # Add your community links here
 LINK_PORTAL = "https://t.me/escrews"  # Portal link (leave empty if not available)
@@ -2808,6 +2811,7 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
     chain_to_check = None
     if query.data.startswith("check_deposit_"):
         # Handle both old format (check_deposit_ETH) and new format (check_deposit_ETH_12345)
+        # Old format maintained for backward compatibility with existing messages
         parts = query.data.replace("check_deposit_", "").split("_")
         chain_to_check = parts[0]
         # If user_id is provided, verify it matches
@@ -7237,6 +7241,9 @@ def build_tower_keyboard(game_state):
     """
     Build the Tower game keyboard with inline buttons showing the grid.
     Returns an InlineKeyboardMarkup.
+    
+    Note: Non-interactive tiles use callback_data='tower_noop' which is silently ignored.
+    These tiles don't need handling as they represent locked, completed, or revealed positions.
     """
     current_floor = game_state.get('current_floor', 0)
     tiles_per_floor = game_state.get('tiles_per_floor', 3)
@@ -8486,7 +8493,7 @@ async def xdxw_bot_first_callback(update: Update, context: ContextTypes.DEFAULT_
             bot_rolls.append(bot_dice_msg.dice.value)
             # Reduce delay if helper bot was used (faster in groups)
             if used_helper:
-                await asyncio.sleep(1.5)  # Faster animation wait for helper bot
+                await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)  # Faster animation wait for helper bot
             else:
                 await asyncio.sleep(animation_wait)
         except Exception as e:
@@ -9092,7 +9099,7 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
                 bot_rolls.append(bot_dice_msg.dice.value)
                 # Faster animation if helper bot was used
                 if used_helper:
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                 else:
                     await asyncio.sleep(animation_wait)
             except Exception as e:
@@ -11580,7 +11587,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         bot_rolls.append(bot_dice_msg.dice.value)
                         # Faster animation if helper bot was used
                         if used_helper:
-                            await asyncio.sleep(1.5)
+                            await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                         else:
                             await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                     except Exception as e:
@@ -11685,7 +11692,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             bot_rolls.append(bot_dice_msg.dice.value)
                             # Faster animation if helper bot was used
                             if used_helper:
-                                await asyncio.sleep(1.5)
+                                await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                             else:
                                 await asyncio.sleep(animation_wait)
                         except Exception as e:
@@ -11811,7 +11818,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             bot_dice, used_helper = await smart_roll(context, chat_id, dice_obj.emoji)
                             # Faster animation if helper bot was used
                             if used_helper:
-                                await asyncio.sleep(1.5)
+                                await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                             else:
                                 await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                             bot_rolls.append(bot_dice.dice.value)
@@ -11920,7 +11927,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             match_data["player_rolls"] = {p1: [], p2: []}  # Reset rolls for next round
                             text += f"\n\n<b>Next round:</b> {match_data['usernames'][p1]} rolls first! ({allowed_emojis[gtype]} emoji)"
 
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                         await context.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.HTML)
                     else:
                         other_id = [pid for pid in players if pid != user.id][0]
@@ -16150,7 +16157,7 @@ async def play_vs_bot_game_from_callback(query, context: ContextTypes.DEFAULT_TY
                 bot_rolls.append(bot_dice_msg.dice.value)
                 # Faster animation if helper bot was used
                 if used_helper:
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(HELPER_BOT_ANIMATION_DELAY)
                 else:
                     await asyncio.sleep(animation_wait)
             except Exception as e:
