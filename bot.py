@@ -75,6 +75,7 @@ except ImportError:
 
 # --- Bot Configuration ---
 BOT_TOKEN = "7956452112:AAGSZVLZz34ep8qCsLKnTRZambI67r_T3ro"
+HELPER_BOT_TOKEN = ""  # Add your second bot token here for load balancing PvP games in groups
 BOT_OWNER_ID = 6083286836
 MIN_BALANCE = 0.1
 DEBUG_EMOJI_GAMES = False  # Set to True to enable detailed emoji game logging
@@ -338,6 +339,16 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(GROUPS_DIR, exist_ok=True) # NEW
 os.makedirs(RECOVERY_DIR, exist_ok=True) # NEW
 os.makedirs(GIFT_CODE_DIR, exist_ok=True) # NEW
+
+# --- Helper Bot Initialization (for PvP Load Balancing) ---
+helper_bot = None
+if HELPER_BOT_TOKEN:
+    try:
+        helper_bot = Bot(token=HELPER_BOT_TOKEN)
+        logging.info("Helper bot initialized successfully for PvP load balancing")
+    except Exception as e:
+        logging.warning(f"Failed to initialize helper bot: {e}")
+        helper_bot = None
 
 # --- In-memory Data ---
 user_wallets = {}
@@ -3232,6 +3243,47 @@ SINGLE_EMOJI_GAMES = {
     }
 }
 
+# --- ROULETTE STICKER ANIMATIONS ---
+# Sticker IDs (0 to 36) - Each index corresponds to the roulette number
+ROULETTE_STICKERS = [
+    "CAACAgQAAyEFAASrImQNAAIBvWiLZDne0b_gDav_cu9Zoz_Wn8QAA9QYAAJJoYBRv9LvNhOfZtw2BA", # 0 
+    "CAACAgQAAyEFAASrImQNAAIBxWiLZNEh0p7950vmRhKNC3S3ZU25AAKoFgAC9OuBUThYKjFsHNUINgQ", # 1 
+    "CAACAgQAAyEFAASrImQNAAIBx2iLZOqAubPVdNGdZzvcnsXjTpqpAALVFgAChvR5UXXNtwbTRSMzNgQ", # 2 
+    "CAACAgQAAyEFAASrImQNAAIBzWiLZQ6zjkGiwJm-7gMR-5pTaDl7AAJJGAACzviBUTIdC1OxHKQaNgQ", # 3 
+    "CAACAgQAAyEFAASrImQNAAIBz2iLZSVhamntTktG1qeRTcyAamngAAJ8GAACDciAUYSN0sp7C2LnNgQ", # 4 
+    "CAACAgQAAyEFAASrImQNAAIB0WiLZT6zKhE_zIZeIN7b3S6tUzh8AALKFgACW3KBUQIpefveRTIKNgQ", # 5 
+    "CAACAgQAAyEFAASrImQNAAIB02iLZVAeRDcVkPbHf67K-6P9hMSkAALLGgACC62BUbKIJ7iU0rb4NgQ", # 6 
+    "CAACAgQAAyEFAASrImQNAAIB1WiLZWLCIx-z_rMuhRNLgPR1qW54AALVGAAClPyBUSUxwoUHdsn8NgQ", # 7 
+    "CAACAgQAAyEFAASrImQNAAIB12iLZXTKXalIWjkrGoCaVd1kdLwWAAKAFAACaVaBUUiaHozlFwAB0jYE", # 8 
+    "CAACAgQAAyEFAASrImQNAAIB2WiLZYebcuzYSQbvfQPnMdLARswWAALgFwAC88p5UUHH5NnJwBYPNgQ", # 9 
+    "CAACAgQAAyEFAASrImQNAAIB22iLZZmLTjEPN3kacYZtInsUCKZtAALyGAACucCAUZ6fXOAfAAEs9zYE", # 10 
+    "CAACAgQAAyEFAASrImQNAAIB3WiLZb-01H91oXUKEFcGpCv8nAupAALZEwACbN2BURqjRgAB0jLjWDYE", # 11 
+    "CAACAgQAAyEFAASrImQNAAIB4WiLZdWV8Mm3ERAAAUtDcsbOQB8F4gACVRgAAovngVFUjR-qYgq8LDYE", # 12 
+    "CAACAgQAAyEFAASrImQNAAIB8miLZi2XoFr2zDBIJmb7FqK_NWeNAAJNHQACZzSAUdecnnT052I6NgQ", # 13 
+    "CAACAgQAAyEFAASrImQNAAIB9GiLZkNMlJ-I8vVZ0hrPyeKG1IdTAAJDGQACpcN5URDm4Ifd0r06NgQ", # 14
+    "CAACAgQAAyEFAASrImQNAAIB92iLZlqc-BO3IIxiXkyXlKi0iZfBAAKtFgACUFaBUf0GoZ1742K-NgQ", # 15 
+    "CAACAgQAAyEFAASrImQNAAIB-2iLZmnlAfTNlsfSaexM1GASzMAbAAKvGwACRx95Ub2KbQXS25k_NgQ", # 16 
+    "CAACAgQAAyEFAASrImQNAAICAWiLZoVPqOAoPNEu8ciguHbhPth-AAIuGAACK5eBUdo-jXChdkRhNgQ", # 17 
+    "CAACAgQAAyEFAASrImQNAAICBGiLZpjAERL_jSk0_Knhenev_rEkAAJjGQACfHt4Uaxk_YBdcErDNgQ", # 18 
+    "CAACAgQAAyEFAASrImQNAAICBmiLZqsspVHNaTc4ENzdfqcJEPqmAAIpGQACsPCAUfSIqog8-IdgNgQ", # 19 
+    "CAACAgQAAyEFAASrImQNAAICDGiLZsPmYc3VwL5hWWfQr62cb10_AAJzGgACvs54UZK5KgfIrF_lNgQ", # 20 
+    "CAACAgQAAyEFAASrImQNAAICDmiLZtWGzKI2zY3wzLprkoAqc-KVAALGFwAC_V2AUXeSG0ZgWd5jNgQ", # 21 
+    "CAACAgQAAyEFAASrImQNAAICEGiLZuNlaO9D0c85DyutySD1u_qMAAMZAAITwoBRIlMrM9BBD0g2BA", # 22 
+    "CAACAgQAAyEFAASrImQNAAICEmiLZvojsOnJx8YE-yfuFiZmpe6cAAJMGAAC6d2BUXq6dfIzfhljNgQ", # 23
+    "CAACAgQAAyEFAASrImQNAAICFGiLZwjZ2PZBmj4YgAKLvUrmAkbNAALhGgACeS-AUdEviXb3bvCcNgQ", # 24
+    "CAACAgQAAyEFAASrImQNAAICFmiLZxey5PH6Qm_FuX_ar_n1Qr8DAALmFwACI96AUWwyQ3Omp9HTNgQ", # 25
+    "CAACAgQAAyEFAASrImQNAAICGWiLZygMUnBPnLmep_qtebbW-ucoAALNIAACfXmBUb6hDihoktivNgQ", # 26 
+    "CAACAgQAAyEFAASrImQNAAICHGiLZziBU-1FLh5G2ZwRDFoJXShpAAKgFwACMrSBUWqhExYnRXYCNgQ", # 27 
+    "CAACAgQAAyEFAASrImQNAAICHmiLZ0a5rK8mKDySuCZ5xWhG6R3XAALzFQACNO2BUVsOM4juGOTINgQ", # 28 
+    "CAACAgQAAyEFAASrImQNAAICIGiLZ1pVZYUGwoBvfOBIUySGC1_3AAJ6FwACAvZ4UXK88kRPGqWWNgQ", # 29 
+    "CAACAgQAAyEFAASrImQNAAICImiLZ2zFmnOl2hUGfKqGwmrWVFPAAAKsFQACoyyBUSIq6OlCBV8kNgQ", # 30 
+    "CAACAgQAAyEFAASrImQNAAICJGiLZ352bXF_C2aVFEgnO-dlGOJtAAIOGwACtbqAUQ1y_oj3ur3ENgQ", # 31 
+    "CAACAgQAAyEFAASrImQNAAICJmiLZ4u_-YlnmI26z9JRKtnREL1cAAJbFwACyad5UYWo5iH3DzX9NgQ", # 32 
+    "CAACAgQAAyEFAASHyrY2AAIIZGiLRIkLwf5ktSB3VkFL8pReOa9BAAKMGQACjcl4URhc62AjMUuNNgQ", # 33 
+    "CAACAgQAAyEFAASrImQNAAICKmiLZ-hPWbW7WDMTkhBmtZYy66oNAAJYFgAC-feBUSUjonJS-hFjNgQ", # 34 
+    "CAACAgQAAyEFAASrImQNAAICLGiLZ_PGUGYeKbdSWBr0uvv5TAirAAKSFgACwpOAUcdyb2uPc8PINgQ", # 35 
+    "CAACAgQAAyEFAASrImQNAAICLmiLaAABmtHjXzRZDz5Zy3dT5v8v0wACrBcAAtbQgVFt8Uw1gyn4MDYE", # 36 
+]
 
 # --- Provably Fair System & Game ID Generation ---
 def generate_server_seed():
@@ -3343,6 +3395,30 @@ async def smart_rate_limit(chat_id, chat_type="private"):
     emoji_send_timestamps[chat_id] = asyncio.get_event_loop().time()
     
     return animation_wait  # Return how long to wait for animation
+
+async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: str):
+    """
+    Attempts to roll dice using the Helper Bot in groups.
+    Falls back to Main Bot if Helper fails or if in Private Chat.
+    Returns the Message object containing the dice value.
+    """
+    # 1. Determine Chat Type (optimization: assume group if negative ID, else check)
+    is_group = str(chat_id).startswith("-")
+    
+    # 2. Try Helper Bot ONLY if it's a group and helper is active
+    if is_group and helper_bot:
+        try:
+            # Attempt roll with Helper Bot
+            msg = await helper_bot.send_dice(chat_id=chat_id, emoji=emoji)
+            return msg
+        except Exception as e:
+            # Log failure (Rate Limit or Permission error) but DO NOT CRASH
+            print(f"⚠️ Helper Bot failed (Failover active): {e}")
+            # PROCEED TO FALLBACK BELOW...
+            
+    # 3. Fallback: Main Bot (Always works for DMs or if Helper failed)
+    msg = await context.bot.send_dice(chat_id=chat_id, emoji=emoji)
+    return msg
 
 def store_provably_fair_record(game_id, game_type, server_seed, client_seed, nonce, result_data=None):
     """Store provably fair verification data for a completed game"""
@@ -6543,6 +6619,14 @@ async def roulette_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], current_nonce, 37)
     game_id = generate_unique_id("RL")
 
+    # Send roulette sticker animation for the winning number
+    try:
+        sticker_id = ROULETTE_STICKERS[winning_number]
+        await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=sticker_id)
+        await asyncio.sleep(2.5)  # Let animation play before showing result
+    except Exception as e:
+        logging.warning(f"Failed to send roulette sticker: {e}")
+
     win = False
     multiplier = 0
     if choice_type == "number":
@@ -6660,6 +6744,14 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         increment_user_nonce(user.id)
         winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], current_nonce, 37)
         game_id = generate_unique_id("RL")
+        
+        # Send roulette sticker animation for the winning number
+        try:
+            sticker_id = ROULETTE_STICKERS[winning_number]
+            await context.bot.send_sticker(chat_id=query.message.chat_id, sticker=sticker_id)
+            await asyncio.sleep(2.5)  # Let animation play before showing result
+        except Exception as e:
+            logging.warning(f"Failed to send roulette sticker in rebet: {e}")
         
         # Determine win/loss
         win = False
@@ -8260,7 +8352,7 @@ async def xdxw_bot_first_callback(update: Update, context: ContextTypes.DEFAULT_
     for i in range(game_rolls):
         animation_wait = await smart_rate_limit(chat_id, chat_type)
         try:
-            bot_dice_msg = await context.bot.send_dice(chat_id=chat_id, emoji=emoji)
+            bot_dice_msg = await smart_roll(context, chat_id, emoji)
             bot_rolls.append(bot_dice_msg.dice.value)
             await asyncio.sleep(animation_wait)
         except Exception as e:
@@ -8725,7 +8817,7 @@ async def group_challenge_botfirst_callback(update: Update, context: ContextType
     roll_values = []
     
     for _ in range(rolls):
-        emoji_msg = await context.bot.send_dice(chat_id=query.message.chat_id, emoji=emoji)
+        emoji_msg = await smart_roll(context, query.message.chat_id, emoji)
         value = emoji_msg.dice.value
         roll_values.append(value)
         total_value += value
@@ -8854,7 +8946,7 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
         for i in range(game_rolls):
             animation_wait = await smart_rate_limit(chat_id, chat_type)
             try:
-                bot_dice_msg = await context.bot.send_dice(chat_id=chat_id, emoji=telegram_emoji)
+                bot_dice_msg = await smart_roll(context, chat_id, telegram_emoji)
                 bot_rolls.append(bot_dice_msg.dice.value)
                 await asyncio.sleep(animation_wait)
             except Exception as e:
@@ -11339,7 +11431,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for i in range(game_rolls):
                     animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                     try:
-                        bot_dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji=expected_emoji)
+                        bot_dice_msg = await smart_roll(context, update.effective_chat.id, expected_emoji)
                         bot_rolls.append(bot_dice_msg.dice.value)
                         await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                     except Exception as e:
@@ -11440,7 +11532,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for i in range(game_rolls):
                         animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                         try:
-                            bot_dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji=expected_emoji)
+                            bot_dice_msg = await smart_roll(context, update.effective_chat.id, expected_emoji)
                             bot_rolls.append(bot_dice_msg.dice.value)
                             await asyncio.sleep(animation_wait)
                         except Exception as e:
@@ -11565,7 +11657,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_type = update.effective_chat.type
                         for i in range(game_rolls):
                             animation_wait = await smart_rate_limit(chat_id, chat_type)
-                            bot_dice = await context.bot.send_dice(chat_id, emoji=dice_obj.emoji)
+                            bot_dice = await smart_roll(context, chat_id, dice_obj.emoji)
                             await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                             bot_rolls.append(bot_dice.dice.value)
                         
@@ -15899,7 +15991,7 @@ async def play_vs_bot_game_from_callback(query, context: ContextTypes.DEFAULT_TY
         for i in range(game_rolls):
             animation_wait = await smart_rate_limit(chat_id, chat_type)
             try:
-                bot_dice_msg = await context.bot.send_dice(chat_id=chat_id, emoji=telegram_emoji)
+                bot_dice_msg = await smart_roll(context, chat_id, telegram_emoji)
                 bot_rolls.append(bot_dice_msg.dice.value)
                 await asyncio.sleep(animation_wait)
             except Exception as e:
