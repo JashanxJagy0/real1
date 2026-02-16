@@ -3402,7 +3402,8 @@ async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: st
     Falls back to Main Bot if Helper fails or if in Private Chat.
     Returns the Message object containing the dice value.
     """
-    # 1. Determine Chat Type (group chats have negative IDs)
+    # 1. Determine Chat Type
+    # In Telegram API, group/supergroup chats have negative IDs, while private chats have positive IDs
     is_group = chat_id < 0
     
     # 2. Try Helper Bot ONLY if it's a group and helper is active
