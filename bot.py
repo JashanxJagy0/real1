@@ -8373,10 +8373,14 @@ async def xdxw_bot_first_callback(update: Update, context: ContextTypes.DEFAULT_
     bot_total = sum(bot_rolls)
     bot_rolls_text = " + ".join(str(r) for r in bot_rolls)
     
+    # Get user for mention
+    user_id = match.get("host_id")
+    user_mention = f'<a href="tg://user?id={user_id}">Player</a>' if user_id else "Player"
+    
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"🤖 Bot rolled: {bot_rolls_text} = <b>{bot_total}</b>\n\n"
-             f"<b>Your turn!</b> Send {game_rolls} {emoji} to respond.",
+             f"{user_mention}, <b>Your turn!</b> Send {game_rolls} {emoji} to respond.",
         parse_mode=ParseMode.HTML
     )
 
@@ -8828,7 +8832,7 @@ async def group_challenge_botfirst_callback(update: Update, context: ContextType
     await query.edit_message_text(
         f"🤖 <b>BOT ROLLED FIRST!</b>\n\n"
         f"Bot rolled: {roll_values} = <b>{total_value}</b>\n\n"
-        f"<b>Your turn!</b> Send {rolls} {emoji} to respond.",
+        f"{user.mention_html()}, <b>Your turn!</b> Send {rolls} {emoji} to respond.",
         parse_mode=ParseMode.HTML
     )
 
@@ -8969,7 +8973,7 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
         
         await update.message.reply_text(
             f"🤖 Bot rolled: {bot_rolls_text} = <b>{bot_total}</b>\n\n"
-            f"<b>Your turn!</b> Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to respond.",
+            f"{user.mention_html()}, <b>Your turn!</b> Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to respond.",
             parse_mode=ParseMode.HTML
         )
     else:
@@ -8979,7 +8983,7 @@ async def play_vs_bot_game(update: Update, context: ContextTypes.DEFAULT_TYPE, g
             f"<b>Mode:</b> {game_mode.capitalize()} ({mode_text})\n"
             f"<b>Rolls per round:</b> {game_rolls}\n"
             f"<b>Target:</b> First to {target_score} points wins ${bet_amount*2:.2f}.\n\n"
-            f"<b>Your turn first! Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to start.</b>",
+            f"{user.mention_html()}, <b>Your turn first! Send {game_rolls} {emoji} emoji{'s' if game_rolls > 1 else ''} to start.</b>",
             parse_mode=ParseMode.HTML
         )
     
@@ -11502,7 +11506,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 game['win'] = True
                 update_stats_on_bet(user.id, game['id'], game['bet_amount'], True, context=context)
                 await asyncio.sleep(0.5)  # Rate limit protection
-                await update.message.reply_text(f"🏆 Congratulations! You beat the bot ({game['user_score']}-{game['bot_score']}) and win ${winnings:.2f}!")
+                await update.message.reply_text(f"🏆 {user.mention_html()}, Congratulations! You beat the bot ({game['user_score']}-{game['bot_score']}) and win ${winnings:.2f}!", parse_mode=ParseMode.HTML)
                 del context.chat_data[f"active_pvb_game_{user.id}"]
                 if user.id in active_pvb_games:
                     del active_pvb_games[user.id]
@@ -11511,7 +11515,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 game['win'] = False
                 update_stats_on_bet(user.id, game['id'], game['bet_amount'], False, context=context)
                 await asyncio.sleep(0.5)  # Rate limit protection
-                await update.message.reply_text(f"😔 Bot wins the match ({game['bot_score']}-{game['user_score']}). You lost ${game['bet_amount']:.2f}.")
+                await update.message.reply_text(f"😔 {user.mention_html()}, Bot wins the match ({game['bot_score']}-{game['user_score']}). You lost ${game['bet_amount']:.2f}.", parse_mode=ParseMode.HTML)
                 del context.chat_data[f"active_pvb_game_{user.id}"]
                 if user.id in active_pvb_games:
                     del active_pvb_games[user.id]
@@ -11560,7 +11564,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # User rolls first for next round
                     await update.message.reply_text(
                         f"Score: You {game['user_score']} - {game['bot_score']} Bot. (First to {game['target_score']})\n\n"
-                        f"<b>Your turn! Send {game_rolls} {expected_emoji}!</b>",
+                        f"{user.mention_html()}, <b>Your turn! Send {game_rolls} {expected_emoji}!</b>",
                         parse_mode=ParseMode.HTML
                     )
             update_pnl(user.id)
