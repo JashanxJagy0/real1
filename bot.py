@@ -2729,7 +2729,7 @@ async def deposit_method_callback(update: Update, context: ContextTypes.DEFAULT_
         else:
             error_msg += f"{chain} address could not be generated. Please try again or contact support."
         
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]]
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]]
         await safe_edit_message(
             query,
             error_msg,
@@ -2777,8 +2777,8 @@ async def deposit_method_callback(update: Update, context: ContextTypes.DEFAULT_
     )
     
     keyboard = [
-        [InlineKeyboardButton("🔄 Check Status", callback_data=f"check_deposit_{chain}")],
-        [InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]
+        [InlineKeyboardButton("🔄 Check Status", callback_data=f"check_deposit_{chain}_{user_id}")],
+        [InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]
     ]
     
     await query.message.reply_photo(
@@ -2807,7 +2807,15 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
     # Extract chain from callback data if specific chain check
     chain_to_check = None
     if query.data.startswith("check_deposit_"):
-        chain_to_check = query.data.replace("check_deposit_", "")
+        # Handle both old format (check_deposit_ETH) and new format (check_deposit_ETH_12345)
+        parts = query.data.replace("check_deposit_", "").split("_")
+        chain_to_check = parts[0]
+        # If user_id is provided, verify it matches
+        if len(parts) > 1:
+            button_user_id = int(parts[1])
+            if button_user_id != user_id:
+                await query.answer("This button is not for you!", show_alert=True)
+                return
     
     db = DepositDatabase()
     
@@ -2849,8 +2857,8 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
             "Send funds to your deposit address and check again.</i>"
         )
         keyboard = [
-            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}" if chain_to_check else "deposit_history")],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]
+            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}_{user_id}" if chain_to_check else "deposit_history")],
+            [InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]
         ]
     else:
         text = "📊 <b>Recent Deposits</b>\n\n"
@@ -2875,8 +2883,8 @@ async def check_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         
         keyboard = [
-            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}" if chain_to_check else "deposit_history")],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_to_deposit_menu")]
+            [InlineKeyboardButton("🔄 Scan Again", callback_data=f"check_deposit_{chain_to_check}_{user_id}" if chain_to_check else "deposit_history")],
+            [InlineKeyboardButton("🔙 Back", callback_data=f"back_to_deposit_menu_{user_id}")]
         ]
     
     # Use safe_edit_message to handle the transition from Photo -> Text
@@ -2896,6 +2904,16 @@ async def back_to_deposit_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     if not check_menu_ownership(query, context):
         await query.answer("This menu is not for you.", show_alert=True)
         return
+    
+    # Extract user_id from callback_data if provided
+    user_id = query.from_user.id
+    if "_" in query.data:
+        parts = query.data.split("_")
+        if len(parts) > 3 and parts[-1].isdigit():
+            button_user_id = int(parts[-1])
+            if button_user_id != user_id:
+                await query.answer("This button is not for you!", show_alert=True)
+                return
     
     await query.answer()
     
@@ -7007,6 +7025,15 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     increment_user_nonce(user.id)  # Increment nonce at game start to ensure unique results
     winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], current_nonce, 37)
     game_id = generate_unique_id("RL")
+    
+    # Send roulette sticker animation for the winning number
+    try:
+        sticker_id = ROULETTE_STICKERS[winning_number]
+        # Send as reply to the callback message to help user find it
+        await query.message.reply_sticker(sticker=sticker_id)
+        await asyncio.sleep(2.5)  # Let animation play before showing result
+    except Exception as e:
+        logging.warning(f"Failed to send roulette sticker in start action: {e}")
     
     # Ensure choice_numbers is defined (will be None for non-number bets)
     try:
@@ -11402,8 +11429,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Check if user has completed all rolls
             if len(game['user_rolls']) < game_rolls:
-                remaining = game_rolls - len(game['user_rolls'])
-                await update.message.reply_text(f"Roll {len(game['user_rolls'])}/{game_rolls} complete. Send {remaining} more {expected_emoji}!")
+                # Don't send spam messages - user knows to send more rolls
                 return
             
             # User finished rolling
@@ -11640,9 +11666,7 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Check if player has completed their rolls
                     current_player_rolls = len(match_data["player_rolls"][user.id])
                     if current_player_rolls < game_rolls:
-                        remaining = game_rolls - current_player_rolls
-                        await asyncio.sleep(1)
-                        await update.message.reply_text(f"Roll {current_player_rolls}/{game_rolls} complete! Send {remaining} more {emoji}!")
+                        # Don't send spam messages - user knows to send more rolls
                         return
 
                     # Check if both players have completed their rolls
@@ -15491,7 +15515,7 @@ def main():
     app.add_handler(CommandHandler("deposit", deposit_command))
     app.add_handler(CallbackQueryHandler(deposit_method_callback, pattern=r"^deposit_(ETH|BNB|BASE|TRON|SOLANA|TON)$"))
     app.add_handler(CallbackQueryHandler(check_deposit_status, pattern=r"^(deposit_history|check_deposit_)"))
-    app.add_handler(CallbackQueryHandler(back_to_deposit_menu, pattern=r"^back_to_deposit_menu$"))
+    app.add_handler(CallbackQueryHandler(back_to_deposit_menu, pattern=r"^back_to_deposit_menu"))
     
     # REMOVED bonus_callback_handler as it's no longer in the main menu
     app.add_handler(admin_handler)
