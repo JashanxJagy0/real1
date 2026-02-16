@@ -3260,7 +3260,7 @@ ROULETTE_STICKERS = [
     "CAACAgQAAyEFAASrImQNAAIB3WiLZb-01H91oXUKEFcGpCv8nAupAALZEwACbN2BURqjRgAB0jLjWDYE", # 11 
     "CAACAgQAAyEFAASrImQNAAIB4WiLZdWV8Mm3ERAAAUtDcsbOQB8F4gACVRgAAovngVFUjR-qYgq8LDYE", # 12 
     "CAACAgQAAyEFAASrImQNAAIB8miLZi2XoFr2zDBIJmb7FqK_NWeNAAJNHQACZzSAUdecnnT052I6NgQ", # 13 
-    "CAACAgQAAyEFAASrImQNAAIB9GiLZkNMlJ-I8vVZ0hrPyeKG1IdTAAJDGQACpcN5URDm4Ifd0r06NgQ", # 14
+    "CAACAgQAAyEFAASrImQNAAIB9GiLZkNMlJ-I8vVZ0hrPyeKG1IdTAAJDGQACpcN5URDm4Ifd0r06NgQ", # 14 
     "CAACAgQAAyEFAASrImQNAAIB92iLZlqc-BO3IIxiXkyXlKi0iZfBAAKtFgACUFaBUf0GoZ1742K-NgQ", # 15 
     "CAACAgQAAyEFAASrImQNAAIB-2iLZmnlAfTNlsfSaexM1GASzMAbAAKvGwACRx95Ub2KbQXS25k_NgQ", # 16 
     "CAACAgQAAyEFAASrImQNAAICAWiLZoVPqOAoPNEu8ciguHbhPth-AAIuGAACK5eBUdo-jXChdkRhNgQ", # 17 
@@ -3269,9 +3269,9 @@ ROULETTE_STICKERS = [
     "CAACAgQAAyEFAASrImQNAAICDGiLZsPmYc3VwL5hWWfQr62cb10_AAJzGgACvs54UZK5KgfIrF_lNgQ", # 20 
     "CAACAgQAAyEFAASrImQNAAICDmiLZtWGzKI2zY3wzLprkoAqc-KVAALGFwAC_V2AUXeSG0ZgWd5jNgQ", # 21 
     "CAACAgQAAyEFAASrImQNAAICEGiLZuNlaO9D0c85DyutySD1u_qMAAMZAAITwoBRIlMrM9BBD0g2BA", # 22 
-    "CAACAgQAAyEFAASrImQNAAICEmiLZvojsOnJx8YE-yfuFiZmpe6cAAJMGAAC6d2BUXq6dfIzfhljNgQ", # 23
-    "CAACAgQAAyEFAASrImQNAAICFGiLZwjZ2PZBmj4YgAKLvUrmAkbNAALhGgACeS-AUdEviXb3bvCcNgQ", # 24
-    "CAACAgQAAyEFAASrImQNAAICFmiLZxey5PH6Qm_FuX_ar_n1Qr8DAALmFwACI96AUWwyQ3Omp9HTNgQ", # 25
+    "CAACAgQAAyEFAASrImQNAAICEmiLZvojsOnJx8YE-yfuFiZmpe6cAAJMGAAC6d2BUXq6dfIzfhljNgQ", # 23 
+    "CAACAgQAAyEFAASrImQNAAICFGiLZwjZ2PZBmj4YgAKLvUrmAkbNAALhGgACeS-AUdEviXb3bvCcNgQ", # 24 
+    "CAACAgQAAyEFAASrImQNAAICFmiLZxey5PH6Qm_FuX_ar_n1Qr8DAALmFwACI96AUWwyQ3Omp9HTNgQ", # 25 
     "CAACAgQAAyEFAASrImQNAAICGWiLZygMUnBPnLmep_qtebbW-ucoAALNIAACfXmBUb6hDihoktivNgQ", # 26 
     "CAACAgQAAyEFAASrImQNAAICHGiLZziBU-1FLh5G2ZwRDFoJXShpAAKgFwACMrSBUWqhExYnRXYCNgQ", # 27 
     "CAACAgQAAyEFAASrImQNAAICHmiLZ0a5rK8mKDySuCZ5xWhG6R3XAALzFQACNO2BUVsOM4juGOTINgQ", # 28 
@@ -3402,8 +3402,8 @@ async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: st
     Falls back to Main Bot if Helper fails or if in Private Chat.
     Returns the Message object containing the dice value.
     """
-    # 1. Determine Chat Type (optimization: assume group if negative ID, else check)
-    is_group = str(chat_id).startswith("-")
+    # 1. Determine Chat Type (group chats have negative IDs)
+    is_group = chat_id < 0
     
     # 2. Try Helper Bot ONLY if it's a group and helper is active
     if is_group and helper_bot:
@@ -3413,7 +3413,7 @@ async def smart_roll(context: ContextTypes.DEFAULT_TYPE, chat_id: int, emoji: st
             return msg
         except Exception as e:
             # Log failure (Rate Limit or Permission error) but DO NOT CRASH
-            print(f"⚠️ Helper Bot failed (Failover active): {e}")
+            logging.warning(f"⚠️ Helper Bot failed (Failover active): {e}")
             # PROCEED TO FALLBACK BELOW...
             
     # 3. Fallback: Main Bot (Always works for DMs or if Helper failed)
