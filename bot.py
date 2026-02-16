@@ -81,7 +81,7 @@ MIN_BALANCE = 0.1
 DEBUG_EMOJI_GAMES = False  # Set to True to enable detailed emoji game logging
 
 # Helper bot animation timing (faster than main bot)
-HELPER_BOT_ANIMATION_DELAY = 1.5  # Seconds to wait after helper bot sends dice
+HELPER_BOT_ANIMATION_DELAY = 0.5  # Seconds to wait after helper bot sends dice
 
 # --- Links Configuration ---
 # Add your community links here
@@ -7260,8 +7260,8 @@ def build_tower_keyboard(game_state):
     for floor in range(8, -1, -1):
         row = []
         
-        if floor > current_floor:
-            # Unreached floors - show as locked/blank
+        if floor > current_floor and status == 'active':
+            # Unreached floors during active game - show as locked/blank
             for col in range(tiles_per_floor):
                 btn_dict = apply_button_style(
                     InlineKeyboardButton(TILE["lock"], callback_data=f"tower_noop"),
@@ -7278,8 +7278,9 @@ def build_tower_keyboard(game_state):
                 )
                 row.append(btn_dict)
         
-        elif floor < current_floor or status != 'active':
-            # Completed floors or game over - reveal the board
+        else:
+            # All other cases: completed floors, current floor when game ended, unreached floors when game ended
+            # This reveals snakes on all floors when status != 'active'
             snake_pos = tower_config[floor] if floor < len(tower_config) else None
             safe_pos = selected_tiles[floor] if floor < len(selected_tiles) else None
             
@@ -7291,13 +7292,13 @@ def build_tower_keyboard(game_state):
                         'success'  # Green background
                     )
                 elif col == snake_pos and status != 'active':
-                    # Reveal snake after game ends
+                    # Reveal snake after game ends (on all floors including unreached)
                     btn_dict = apply_button_style(
                         InlineKeyboardButton(TILE["snake"], callback_data=f"tower_noop"),
                         'danger'  # Red background
                     )
                 else:
-                    # Other tiles on completed floor
+                    # Other tiles
                     btn_dict = apply_button_style(
                         InlineKeyboardButton(TILE["blank"], callback_data=f"tower_noop"),
                         'primary'  # Blue background
@@ -7756,7 +7757,10 @@ async def handle_tower_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         store_provably_fair_record(game_id, "tower", game["server_seed"], game["client_seed"], game["nonce"], 
                                    result_data=f"Hit snake on floor {current_floor + 1}, Config: {game['tower_config']}")
         
-        # Build keyboard showing revealed board
+        # Answer the callback query first
+        await query.answer("💔 You hit the snake!")
+        
+        # Build keyboard showing revealed board with all snakes
         keyboard_markup = build_tower_keyboard(game)
         # Add provably fair button
         keyboard = keyboard_markup.inline_keyboard
@@ -7795,6 +7799,9 @@ async def handle_tower_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         store_provably_fair_record(game_id, "tower", game["server_seed"], game["client_seed"], game["nonce"], 
                                    result_data=f"Conquered all floors, Multiplier: {multiplier}x, Config: {game['tower_config']}")
         
+        # Answer the callback query first
+        await query.answer("🏆 Tower conquered!")
+        
         # Build keyboard showing revealed board
         keyboard_markup = build_tower_keyboard(game)
         # Add provably fair button
@@ -7816,6 +7823,9 @@ async def handle_tower_pick(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     # Continue to next floor
     multiplier = TOWER_MULTIPLIERS[difficulty][new_floor]
     potential_winnings = game["bet_amount"] * multiplier
+    
+    # Answer the callback query
+    await query.answer("✅ Safe tile!")
     
     # Build keyboard for next floor
     keyboard = build_tower_keyboard(game)
@@ -7854,6 +7864,9 @@ async def handle_tower_cashout(update: Update, context: ContextTypes.DEFAULT_TYP
     # Store provably fair record
     store_provably_fair_record(game_id, "tower", game["server_seed"], game["client_seed"], game["nonce"], 
                                result_data=f"Cashed out at floor {current_floor}, Multiplier: {multiplier}x, Config: {game['tower_config']}")
+    
+    # Answer the callback query first
+    await query.answer(f"💰 Cashed out ${winnings:.2f}!")
     
     # Build keyboard showing revealed board
     keyboard_markup = build_tower_keyboard(game)
